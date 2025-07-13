@@ -1,0 +1,4 @@
+streamlit>=1.28
+cryptography>=41.0
+pandas>=2.0       # Optional, but good for Streamlit/persistence
+requests>=2.28    # Only if you want to expand to fetch files/info
