@@ -93,12 +93,6 @@ A: Yes! For predictable, deterministic keypairs, you can derive directly from a 
 
 ---
 
-## ❤️ Contributing
-
-Feel free to open issues or PRs. Whether you find a bug, want a new feature, or improve the docs, your help is welcome!
-
----
-
 ## 📜 License
 
 This project is open-source under the MIT License. See [LICENSE](LICENSE) for details.
