@@ -1,15 +1,26 @@
 import streamlit as st
+import time
 from utils.crypto_utils import (
     generate_keypair, save_keypair_json, load_keypair_json,
     encrypt_with_public_key, decrypt_with_private_key,
     public_key_to_qr
 )
-from utils.ui_helpers import main_css, show_banner, copy_button, beautiful_card
+from utils.storage import store_message, retrieve_message, delete_message, purge_expired
+from utils.ui_helpers import main_css, beautiful_card, show_banner, copy_button
 from utils.security_info import render_how_it_works, render_faq
 
 st.set_page_config(page_title="🔑 SecureKey Exchange Messenger", layout="centered")
 main_css()
-st.title("🔑 SecureKey Messenger: Public Key Encryption for Private Messaging")
+st.title("🔑 SecureKey Messenger: Public-Key Encrypted Messaging")
+
+# Clean up expired messages
+purge_expired()
+
+# Initialize session state for keys
+if 'pub_key' not in st.session_state:
+    st.session_state['pub_key'] = None
+if 'priv_key' not in st.session_state:
+    st.session_state['priv_key'] = None
 
 tab1, tab2, tab3 = st.tabs([
     "1️⃣ Generate/Import Keypair",
@@ -17,106 +28,118 @@ tab1, tab2, tab3 = st.tabs([
     "3️⃣ Decrypt Received Message"
 ])
 
-# ---- Generate Keypair ----
+# --- Tab 1: Keypair Generation/Import ---
 with tab1:
-    st.header("Generate or Import Your Keypair")
+    st.header("🔑 Keypair Setup")
     beautiful_card("""
-        <b>Generate a new secure keypair</b> for yourself, or <b>import your existing private key</b>.<br>
-        <ul>
-        <li><b>Keep your Private Key file secret!</b></li>
-        <li>Share only your Public Key (or QR) with others.</li>
-        </ul>
+        Generate a new keypair or import your existing private key.
+        Keep your <b>private key</b> secret; share only your <b>public key</b>.
     """)
-    key_method = st.radio("Keypair setup:", ["Generate random keypair", "Import private key (JSON file)", "Create from passphrase"])
-    if key_method == "Generate random keypair":
+    method = st.radio("Keypair action:", [
+        "Generate random keypair", 
+        "Import private key (JSON)", 
+        "Create deterministic from passphrase"
+    ])
+
+    if method == "Generate random keypair":
         if st.button("Generate Keypair"):
             pub, priv = generate_keypair()
-            st.success("Keypair generated!")
-            key_json = save_keypair_json(pub, priv)
-            st.markdown("#### Download Your Keypair (Private!):")
-            st.download_button("Download Private Key JSON", data=key_json, file_name="private_key.json", mime="application/json")
-            st.markdown("#### Your Public Key (safe to share):")
-            st.code(pub, language="text")
-            copy_button(pub, "Copy Public Key")
-            st.markdown("Or scan QR code to share public key securely:")
-            st.image(public_key_to_qr(pub))
-    elif key_method == "Import private key (JSON file)":
-        up = st.file_uploader("Upload your private key JSON file", type="json")
-        if up:
+            st.session_state.pub_key = pub
+            st.session_state.priv_key = priv
+            st.success("🔑 Keypair generated!")
+    elif method == "Import private key (JSON)":
+        uploaded = st.file_uploader("Upload your private_key.json", type="json")
+        if uploaded:
             try:
-                pub, priv = load_keypair_json(up.read())
-                st.success("Keypair loaded!")
-                st.code(pub, language="text")
-                st.markdown("Ready to decrypt messages sent to your public key.")
+                pub, priv = load_keypair_json(uploaded.read())
+                st.session_state.pub_key = pub
+                st.session_state.priv_key = priv
+                st.success("🔑 Keypair imported!")
             except Exception:
-                show_banner("Invalid or corrupted private key file.", "error")
-    elif key_method == "Create from passphrase":
+                show_banner("Invalid private key file.", "error")
+    else:  # passphrase
         passphrase = st.text_input("Enter passphrase (min 12 chars)", type="password")
-        if st.button("Create Keypair from Passphrase"):
+        if st.button("Derive Keypair from Passphrase"):
             if not passphrase or len(passphrase) < 12:
-                show_banner("Passphrase must be at least 12 characters.", "error")
+                show_banner("Passphrase must be ≥12 characters.", "error")
             else:
                 pub, priv = generate_keypair(passphrase=passphrase)
-                st.success("Deterministic keypair created from passphrase.")
-                key_json = save_keypair_json(pub, priv)
-                st.download_button("Download Private Key JSON", data=key_json, file_name="private_key.json", mime="application/json")
-                st.code(pub, language="text")
-                copy_button(pub, "Copy Public Key")
-                st.image(public_key_to_qr(pub))
+                st.session_state.pub_key = pub
+                st.session_state.priv_key = priv
+                st.success("🔑 Deterministic keypair created!")
 
-# ---- Encrypt Message ----
+    # If we have keys in session, show download & display
+    if st.session_state.priv_key:
+        # Download private key JSON
+        key_json = save_keypair_json(st.session_state.pub_key, st.session_state.priv_key)
+        st.markdown("**Your Private Key (keep it secret):**")
+        st.download_button(
+            "Download private_key.json",
+            data=key_json,
+            file_name="private_key.json",
+            mime="application/json"
+        )
+
+        # Display and copy public key
+        st.markdown("**Your Public Key (safe to share):**")
+        st.code(st.session_state.pub_key, language="text")
+        copy_button(st.session_state.pub_key, "Copy Public Key")
+
+        # QR for public key
+        st.markdown("**Or share via QR code:**")
+        st.image(public_key_to_qr(st.session_state.pub_key))
+
+# --- Tab 2: Encrypt Message ---
 with tab2:
-    st.header("Encrypt a Message for Someone")
+    st.header("✉️ Encrypt & Send")
     beautiful_card("""
-        <b>Paste the recipient's public key</b> (from QR or text), write your message, and get an encrypted file to send them.<br>
-        <ul><li><b>Your message is encrypted with their public key.</b> Only they can decrypt with their private key.</li></ul>
+        Paste your recipient’s public key, type your message, and download the encrypted file to send them.
     """)
     pubkey = st.text_area("Recipient's Public Key", height=80)
-    msg = st.text_area("Your message", height=150, max_chars=4000)
+    message = st.text_area("Message to encrypt", height=150, max_chars=4000)
+
     if st.button("Encrypt & Download"):
         if not pubkey.strip():
-            show_banner("Paste the recipient's public key.", "error")
-        elif not msg.strip():
-            show_banner("Enter your message to encrypt.", "error")
+            show_banner("Enter the recipient’s public key.", "error")
+        elif not message.strip():
+            show_banner("Enter a message to encrypt.", "error")
         else:
             try:
-                encrypted_json = encrypt_with_public_key(pubkey, msg)
-                st.success("Message encrypted! Download below.")
+                encrypted_json = encrypt_with_public_key(pubkey, message)
+                st.success("🔒 Message encrypted!")
                 st.download_button(
-                    "Download Encrypted Message JSON",
+                    "Download encrypted_message.json",
                     data=encrypted_json,
                     file_name="encrypted_message.json",
                     mime="application/json"
                 )
                 st.code(encrypted_json[:400] + "...", language="json")
             except Exception as e:
-                show_banner(f"Encryption failed: {e}", "error")
+                show_banner(f"Encryption error: {e}", "error")
 
-# ---- Decrypt Message ----
+# --- Tab 3: Decrypt Message ---
 with tab3:
-    st.header("Decrypt a Received Message")
+    st.header("🔓 Decrypt Received")
     beautiful_card("""
-        <b>Load your private key file and the encrypted message file you received.</b><br>
-        <ul>
-        <li>Private key file: <b>private_key.json</b></li>
-        <li>Encrypted message file: <b>encrypted_message.json</b></li>
-        </ul>
+        Upload your private key JSON and the encrypted message JSON to decrypt.
     """)
-    privkey_file = st.file_uploader("Upload your private key JSON", type="json", key="privkeyu")
-    enc_file = st.file_uploader("Upload encrypted message JSON", type="json", key="encfileu")
+    priv_file = st.file_uploader("Upload your private_key.json", type="json", key="priv")
+    enc_file = st.file_uploader("Upload encrypted_message.json", type="json", key="enc")
+
     if st.button("Decrypt Message"):
-        if not privkey_file or not enc_file:
-            show_banner("Upload both your private key and the encrypted message.", "error")
+        if not priv_file or not enc_file:
+            show_banner("Both files are required.", "error")
         else:
             try:
-                pub, priv = load_keypair_json(privkey_file.read())
+                pub, priv = load_keypair_json(priv_file.read())
                 plaintext = decrypt_with_private_key(priv, enc_file.read())
                 beautiful_card(f"<b>Decrypted Message:</b><br><br>{plaintext}")
                 st.balloons()
             except Exception as e:
-                show_banner(f"Decryption failed: {e}", "error")
+                show_banner(f"Decryption error: {e}", "error")
 
+# --- Info & FAQ ---
 st.markdown("---")
-with st.expander("🔍 See how it works / FAQ"):
+with st.expander("🔍 How it works & FAQ"):
     render_how_it_works()
     render_faq()
