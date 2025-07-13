@@ -1,54 +1,73 @@
-import os
-from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+import json
+import base64
+from nacl.public import PrivateKey, PublicKey, SealedBox
+from nacl.encoding import Base64Encoder
+import qrcode
+from io import BytesIO
+import hashlib
 
-# -- Constants --
-KEYLEN = 32  # 256-bit AES
-NONCE_SIZE = 12  # Recommended for AES-GCM
-
-def generate_key():
+def generate_keypair(passphrase=None):
     """
-    Generate a random 256-bit key for AES-GCM.
-    Returns bytes.
+    Generates a X25519 keypair.
+    If passphrase is provided, derives deterministic keypair from passphrase using SHA256.
+    Returns (public_key_b64, private_key_b64)
     """
-    return os.urandom(KEYLEN)
-
-def derive_key_from_passphrase(passphrase: str, salt: bytes = None):
-    """
-    Derive a 256-bit key from passphrase using scrypt KDF (secure, slow, modern).
-    Uses random salt (per message), or a fixed one for demo if needed.
-    Returns key (bytes). For real systems, save the salt alongside the message!
-    """
-    if salt is None:
-        salt = b"SecureMsgSalt"  # For demo; in production use random salt per message!
-    kdf = Scrypt(
-        salt=salt,
-        length=KEYLEN,
-        n=2**15,
-        r=8,
-        p=1,
+    if passphrase:
+        h = hashlib.sha256(passphrase.encode("utf-8")).digest()
+        priv = PrivateKey(h)
+    else:
+        priv = PrivateKey.generate()
+    pub = priv.public_key
+    return (
+        base64.b64encode(pub.encode()).decode(),
+        base64.b64encode(priv.encode()).decode()
     )
-    key = kdf.derive(passphrase.encode("utf-8"))
-    return key
 
-def encrypt_message(plaintext: str, key: bytes):
-    """
-    Encrypt plaintext string using AES-GCM.
-    Returns (nonce, ciphertext, tag), all as bytes.
-    """
-    aesgcm = AESGCM(key)
-    nonce = os.urandom(NONCE_SIZE)
-    ct = aesgcm.encrypt(nonce, plaintext.encode("utf-8"), None)
-    # GCM tag is last 16 bytes of ct
-    tag = ct[-16:]
-    return nonce, ct, tag
+def save_keypair_json(pub_b64, priv_b64):
+    obj = {
+        "public_key": pub_b64,
+        "private_key": priv_b64
+    }
+    return json.dumps(obj, indent=2)
 
-def decrypt_message(nonce: bytes, ciphertext: bytes, tag: bytes, key: bytes):
+def load_keypair_json(file_bytes):
+    obj = json.loads(file_bytes.decode() if isinstance(file_bytes, bytes) else file_bytes)
+    pub_b64 = obj["public_key"]
+    priv_b64 = obj["private_key"]
+    return pub_b64, priv_b64
+
+def encrypt_with_public_key(recipient_pub_b64, message: str):
     """
-    Decrypt using AES-GCM.
-    Returns plaintext string.
+    Encrypts the message with recipient's public key using X25519 + SealedBox.
+    Returns a JSON string containing the encrypted message.
     """
-    aesgcm = AESGCM(key)
-    # Combine ct+tag if needed (ct always contains tag in AESGCM lib)
-    pt = aesgcm.decrypt(nonce, ciphertext, None)
-    return pt.decode("utf-8")
+    pub = PublicKey(base64.b64decode(recipient_pub_b64))
+    box = SealedBox(pub)
+    ct = box.encrypt(message.encode("utf-8"), encoder=Base64Encoder)
+    obj = {
+        "version": 1,
+        "encrypted_message": ct.decode()
+    }
+    return json.dumps(obj, indent=2)
+
+def decrypt_with_private_key(priv_b64, encrypted_json_bytes):
+    """
+    Decrypts a message using the provided private key (base64), and encrypted message JSON (bytes or str).
+    Returns the decrypted plaintext (str).
+    """
+    priv = PrivateKey(base64.b64decode(priv_b64))
+    box = SealedBox(priv)
+    enc_obj = json.loads(encrypted_json_bytes.decode() if isinstance(encrypted_json_bytes, bytes) else encrypted_json_bytes)
+    ct = base64.b64decode(enc_obj["encrypted_message"])
+    pt = box.decrypt(ct).decode("utf-8")
+    return pt
+
+def public_key_to_qr(pub_b64):
+    """
+    Returns a QR code PNG image (as BytesIO) of the public key (base64).
+    """
+    img = qrcode.make(pub_b64)
+    buf = BytesIO()
+    img.save(buf, format='PNG')
+    buf.seek(0)
+    return buf
