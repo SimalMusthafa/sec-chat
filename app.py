@@ -6,21 +6,17 @@ from utils.ui_helpers import main_css, message_card, show_banner, copy_button
 from utils.security_info import render_how_it_works, render_faq
 
 st.set_page_config(page_title="🔐 SecureMsg - End-to-End Encrypted Messenger", layout="centered")
-
-main_css()  # Inject custom CSS
+main_css()  # Custom CSS
 
 st.title("🔐 SecureMsg: End-to-End Encrypted Message Exchange")
 
-# ---- Purge expired messages on each run ----
-purge_expired()
+purge_expired()  # Clean up expired messages
 
-# ---- Page navigation ----
 page = st.sidebar.radio(
     "Menu", 
     ["📤 Send Secure Message", "📥 Retrieve Message", "ℹ️ How This Works", "❓ FAQ"]
 )
 
-# ---- Send Secure Message ----
 if page == "📤 Send Secure Message":
     st.header("Send a Secure Message")
     with st.form("send_form"):
@@ -43,30 +39,39 @@ if page == "📤 Send Secure Message":
         elif option == "Use my own passphrase" and (not passphrase or len(passphrase) < 10):
             show_banner("Passphrase must be at least 10 characters.", "error")
         else:
-            # Key derivation
             if option == "Use my own passphrase":
                 key = derive_key_from_passphrase(passphrase)
-            # Encrypt
             nonce, ct, tag = encrypt_message(msg, key)
-            # Store encrypted
             expire_at = time.time() + {"15 minutes":900, "1 hour":3600, "12 hours":43200, "1 day":86400}[expiry]
             msg_id = store_message(nonce, ct, tag, expire_at)
-            # Show result
             st.success("Your encrypted message is ready!")
             link = f"{st.secrets.get('PUBLIC_URL', 'https://securemsg.yourdomain.com')}/?msgid={msg_id}"
             st.markdown(f"**Share this code (or link) with the recipient:**")
             if option == "Generate random code":
-                st.text_area("Decryption Code", value=key_display, height=36, key="key_display", help="Copy and send to your recipient.", disabled=True)
+                st.text_area(
+                    "Decryption Code", 
+                    value=key_display, 
+                    height=70, 
+                    key="key_display", 
+                    help="Copy and send to your recipient.", 
+                    disabled=True
+                )
                 copy_button(key_display, "Copy Code")
             else:
-                st.text_area("Passphrase", value=passphrase, height=36, key="passphrase_display", help="Copy and send to your recipient.", disabled=True)
+                st.text_area(
+                    "Passphrase", 
+                    value=passphrase, 
+                    height=70, 
+                    key="passphrase_display", 
+                    help="Copy and send to your recipient.", 
+                    disabled=True
+                )
                 copy_button(passphrase, "Copy Passphrase")
             st.markdown(f"**Message Link:**")
             st.code(link, language="text")
             copy_button(link, "Copy Link")
             st.info("This message can be read only ONCE. It will self-destruct after reading, or after expiry (whichever comes first).")
 
-# ---- Retrieve Secure Message ----
 elif page == "📥 Retrieve Message":
     st.header("Retrieve & Decrypt Message")
     with st.form("retrieve_form"):
@@ -80,7 +85,6 @@ elif page == "📥 Retrieve Message":
         elif not code or len(code) < 10:
             show_banner("Please enter a valid code/passphrase.", "error")
         else:
-            # Parse msgid from link or code
             _id = msg_id
             if "?msgid=" in msg_id:
                 _id = msg_id.split("?msgid=")[-1]
@@ -95,7 +99,6 @@ elif page == "📥 Retrieve Message":
                     else:
                         key = derive_key_from_passphrase(code)
                     plaintext = decrypt_message(nonce, ct, tag, key)
-                    # Delete after read (self-destruct)
                     delete_message(_id)
                     message_card(plaintext)
                     st.balloons()
@@ -103,10 +106,8 @@ elif page == "📥 Retrieve Message":
                     show_banner("Failed to decrypt. Wrong code or message corrupted.", "error")
                 st.info("This message is now deleted and cannot be read again.")
 
-# ---- How it Works ----
 elif page == "ℹ️ How This Works":
     render_how_it_works()
 
-# ---- FAQ ----
 elif page == "❓ FAQ":
     render_faq()
