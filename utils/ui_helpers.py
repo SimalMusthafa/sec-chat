@@ -4,19 +4,19 @@ def main_css():
     st.markdown("""
     <style>
     .stApp {
-        background: linear-gradient(120deg, #1a233a 0%, #222833 100%);
+        background: linear-gradient(120deg, #232946 0%, #161925 100%);
         font-family: 'Segoe UI', 'Roboto', 'Arial', sans-serif;
     }
     h1, h2, h3, h4, h5 { color: #f7fafc !important; }
-    .block-container { padding-top: 2rem; }
-    .message-card {
-        background: #232c45;
+    .block-container { padding-top: 2.5rem; }
+    .beautiful-card {
+        background: #253056;
         border-radius: 18px;
-        padding: 22px 25px 16px 25px;
-        margin: 25px auto 18px auto;
+        padding: 22px 28px 16px 28px;
+        margin: 22px auto 18px auto;
         color: #f7fafc;
-        box-shadow: 0 6px 30px #0002;
-        font-size: 1.18em;
+        box-shadow: 0 6px 30px #0003;
+        font-size: 1.14em;
         word-break: break-word;
     }
     .copy-btn {
@@ -59,14 +59,10 @@ def show_banner(msg, type="error"):
     }.get(type, "custom-banner")
     st.markdown(f"<div class='{color}'>{msg}</div>", unsafe_allow_html=True)
 
-def message_card(msg):
-    st.markdown(f"<div class='message-card'><b>🔓 Decrypted Message:</b><br><br>{msg}</div>", unsafe_allow_html=True)
+def beautiful_card(html):
+    st.markdown(f"<div class='beautiful-card'>{html}</div>", unsafe_allow_html=True)
 
 def copy_button(text, label="Copy"):
-    """
-    Renders a copy-to-clipboard button next to any text.
-    """
-    # Use unique key per button
     import uuid
     key = str(uuid.uuid4()).replace('-', '')[:10]
     btn = st.button(f"{label}", key=f"copy_{key}")
